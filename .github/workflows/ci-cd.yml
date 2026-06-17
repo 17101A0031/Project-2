@@ -14,25 +14,33 @@ jobs:
 
     steps:
       # ──────────────────────────────────────────
-      # 1. Git Checkout
+      # 1. Fix Workspace Permissions
+      # ──────────────────────────────────────────
+      - name: Fix workspace permissions
+        run: |
+          sudo chown -R ubuntu:ubuntu $GITHUB_WORKSPACE || true
+          sudo chown -R ubuntu:ubuntu /home/ubuntu/actions-runner/_work/ || true
+
+      # ──────────────────────────────────────────
+      # 2. Git Checkout
       # ──────────────────────────────────────────
       - name: Checkout source code
         uses: actions/checkout@v4
 
       # ──────────────────────────────────────────
-      # 2. Compile
+      # 3. Compile
       # ──────────────────────────────────────────
       - name: Compile
         run: mvn compile
 
       # ──────────────────────────────────────────
-      # 3. Unit Tests
+      # 4. Unit Tests
       # ──────────────────────────────────────────
       - name: Unit Tests
         run: mvn test -DskipTests=true
 
       # ──────────────────────────────────────────
-      # 4. SonarQube Analysis
+      # 5. SonarQube Analysis
       # ──────────────────────────────────────────
       - name: SonarQube Analysis
         run: |
@@ -44,7 +52,7 @@ jobs:
             -Dsonar.login=${{ secrets.SONAR_TOKEN }}
 
       # ──────────────────────────────────────────
-      # 5. OWASP Dependency Check
+      # 6. OWASP Dependency Check
       # ──────────────────────────────────────────
       - name: OWASP Dependency Check
         uses: dependency-check/Dependency-Check_Action@main
@@ -64,25 +72,32 @@ jobs:
           path: reports/
 
       # ──────────────────────────────────────────
-      # 6. Maven Build (Package)
+      # Fix permissions after OWASP (runs as root)
+      # ──────────────────────────────────────────
+      - name: Fix permissions after OWASP
+        if: always()
+        run: sudo chown -R ubuntu:ubuntu $GITHUB_WORKSPACE || true
+
+      # ──────────────────────────────────────────
+      # 7. Maven Build (Package)
       # ──────────────────────────────────────────
       - name: Build (Package)
         run: mvn package -DskipTests=true
 
       # ──────────────────────────────────────────
-      # 7. Deploy to Nexus
+      # 8. Deploy to Nexus
       # ──────────────────────────────────────────
       - name: Deploy to Nexus
         run: mvn deploy -DskipTests=true
 
       # ──────────────────────────────────────────
-      # 8. Build & Tag Docker Image
+      # 9. Build & Tag Docker Image
       # ──────────────────────────────────────────
       - name: Build and Tag Docker Image
         run: docker build -t ${{ env.DOCKER_IMAGE }}:latest -f docker/Dockerfile .
 
       # ──────────────────────────────────────────
-      # 9. Push Docker Image to Docker Hub
+      # 10. Push Docker Image to Docker Hub
       # ──────────────────────────────────────────
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
@@ -94,7 +109,7 @@ jobs:
         run: docker push ${{ env.DOCKER_IMAGE }}:latest
 
       # ──────────────────────────────────────────
-      # 10. Configure AWS Credentials & kubectl
+      # 11. Configure AWS Credentials & kubectl
       # ──────────────────────────────────────────
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -110,7 +125,7 @@ jobs:
             --name ${{ env.EKS_CLUSTER }}
 
       # ──────────────────────────────────────────
-      # 11. Deploy to Kubernetes
+      # 12. Deploy to Kubernetes
       # ──────────────────────────────────────────
       - name: Deploy to Kubernetes
         run: kubectl apply -f deploymentservice.yml
