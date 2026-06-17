@@ -73,10 +73,7 @@ jobs:
       # 7. Deploy to Nexus
       # ──────────────────────────────────────────
       - name: Deploy to Nexus
-        run: |
-          mvn deploy -DskipTests=true \
-            -Drepository.username=${{ secrets.NEXUS_USERNAME }} \
-            -Drepository.password=${{ secrets.NEXUS_PASSWORD }}
+        run: mvn deploy -DskipTests=true
 
       # ──────────────────────────────────────────
       # 8. Build & Tag Docker Image
