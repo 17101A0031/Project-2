@@ -1,12 +1,7 @@
 name: CI/CD Pipeline
 
 on:
-  push:
-    branches:
-      - master
-  pull_request:
-    branches:
-      - master
+  workflow_dispatch:
 
 env:
   DOCKER_IMAGE: sidk27/ekart
@@ -15,7 +10,7 @@ env:
 
 jobs:
   build-and-deploy:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
 
     steps:
       # ──────────────────────────────────────────
@@ -41,7 +36,7 @@ jobs:
         run: mvn compile
 
       # ──────────────────────────────────────────
-      # 4. Unit Tests (skipped, mirrors Jenkins)
+      # 4. Unit Tests
       # ──────────────────────────────────────────
       - name: Unit Tests
         run: mvn test -DskipTests=true
@@ -50,16 +45,13 @@ jobs:
       # 5. SonarQube Analysis
       # ──────────────────────────────────────────
       - name: SonarQube Analysis
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
         run: |
           mvn sonar:sonar \
             -Dsonar.projectKey=EKART \
             -Dsonar.projectName=EKART \
             -Dsonar.java.binaries=target/classes \
-            -Dsonar.host.url=$SONAR_HOST_URL \
-            -Dsonar.login=$SONAR_TOKEN
+            -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
+            -Dsonar.login=${{ secrets.SONAR_TOKEN }}
 
       # ──────────────────────────────────────────
       # 6. OWASP Dependency Check
@@ -91,13 +83,10 @@ jobs:
       # 8. Deploy to Nexus
       # ──────────────────────────────────────────
       - name: Deploy to Nexus
-        env:
-          NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME }}
-          NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
         run: |
           mvn deploy -DskipTests=true \
-            -Drepository.username=$NEXUS_USERNAME \
-            -Drepository.password=$NEXUS_PASSWORD
+            -Drepository.username=${{ secrets.NEXUS_USERNAME }} \
+            -Drepository.password=${{ secrets.NEXUS_PASSWORD }}
 
       # ──────────────────────────────────────────
       # 9. Build & Tag Docker Image
