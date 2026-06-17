@@ -9,39 +9,55 @@ env:
   EKS_CLUSTER: project-cluster
 
 jobs:
-  build-and-deploy:
+  # ──────────────────────────────────────────
+  # JOB 1: Checkout & Compile
+  # ──────────────────────────────────────────
+  compile:
+    name: Compile
     runs-on: self-hosted
-
     steps:
-      # ──────────────────────────────────────────
-      # 1. Fix Workspace Permissions
-      # ──────────────────────────────────────────
       - name: Fix workspace permissions
         run: |
           sudo chown -R ubuntu:ubuntu $GITHUB_WORKSPACE || true
           sudo chown -R ubuntu:ubuntu /home/ubuntu/actions-runner/_work/ || true
 
-      # ──────────────────────────────────────────
-      # 2. Git Checkout
-      # ──────────────────────────────────────────
       - name: Checkout source code
         uses: actions/checkout@v4
 
-      # ──────────────────────────────────────────
-      # 3. Compile
-      # ──────────────────────────────────────────
       - name: Compile
         run: mvn compile
 
-      # ──────────────────────────────────────────
-      # 4. Unit Tests
-      # ──────────────────────────────────────────
+  # ──────────────────────────────────────────
+  # JOB 2: Unit Tests
+  # ──────────────────────────────────────────
+  unit-tests:
+    name: Unit Tests
+    runs-on: self-hosted
+    needs: compile
+    steps:
+      - name: Fix workspace permissions
+        run: sudo chown -R ubuntu:ubuntu $GITHUB_WORKSPACE || true
+
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
       - name: Unit Tests
         run: mvn test -DskipTests=true
 
-      # ──────────────────────────────────────────
-      # 5. SonarQube Analysis
-      # ──────────────────────────────────────────
+  # ──────────────────────────────────────────
+  # JOB 3: SonarQube Analysis
+  # ──────────────────────────────────────────
+  sonarqube:
+    name: SonarQube Analysis
+    runs-on: self-hosted
+    needs: unit-tests
+    steps:
+      - name: Fix workspace permissions
+        run: sudo chown -R ubuntu:ubuntu $GITHUB_WORKSPACE || true
+
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
       - name: SonarQube Analysis
         run: |
           mvn sonar:sonar \
@@ -51,9 +67,20 @@ jobs:
             -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
             -Dsonar.login=${{ secrets.SONAR_TOKEN }}
 
-      # ──────────────────────────────────────────
-      # 6. OWASP Dependency Check
-      # ──────────────────────────────────────────
+  # ──────────────────────────────────────────
+  # JOB 4: OWASP Dependency Check
+  # ──────────────────────────────────────────
+  owasp:
+    name: OWASP Dependency Check
+    runs-on: self-hosted
+    needs: sonarqube
+    steps:
+      - name: Fix workspace permissions
+        run: sudo chown -R ubuntu:ubuntu $GITHUB_WORKSPACE || true
+
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
       - name: OWASP Dependency Check
         uses: dependency-check/Dependency-Check_Action@main
         with:
@@ -64,41 +91,54 @@ jobs:
             --nvdApiKey ${{ secrets.NVD_API_KEY }}
             --out reports/
 
-      - name: Upload OWASP Dependency Check Report
+      - name: Upload OWASP Report
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: dependency-check-report
           path: reports/
 
-      # ──────────────────────────────────────────
-      # Fix permissions after OWASP (runs as root)
-      # ──────────────────────────────────────────
       - name: Fix permissions after OWASP
         if: always()
         run: sudo chown -R ubuntu:ubuntu $GITHUB_WORKSPACE || true
 
-      # ──────────────────────────────────────────
-      # 7. Maven Build (Package)
-      # ──────────────────────────────────────────
+  # ──────────────────────────────────────────
+  # JOB 5: Build & Deploy to Nexus
+  # ──────────────────────────────────────────
+  build-and-nexus:
+    name: Build and Deploy to Nexus
+    runs-on: self-hosted
+    needs: owasp
+    steps:
+      - name: Fix workspace permissions
+        run: sudo chown -R ubuntu:ubuntu $GITHUB_WORKSPACE || true
+
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
       - name: Build (Package)
         run: mvn package -DskipTests=true
 
-      # ──────────────────────────────────────────
-      # 8. Deploy to Nexus
-      # ──────────────────────────────────────────
       - name: Deploy to Nexus
         run: mvn deploy -DskipTests=true
 
-      # ──────────────────────────────────────────
-      # 9. Build & Tag Docker Image
-      # ──────────────────────────────────────────
+  # ──────────────────────────────────────────
+  # JOB 6: Docker Build & Push
+  # ──────────────────────────────────────────
+  docker:
+    name: Docker Build and Push
+    runs-on: self-hosted
+    needs: build-and-nexus
+    steps:
+      - name: Fix workspace permissions
+        run: sudo chown -R ubuntu:ubuntu $GITHUB_WORKSPACE || true
+
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
       - name: Build and Tag Docker Image
         run: docker build -t ${{ env.DOCKER_IMAGE }}:latest -f docker/Dockerfile .
 
-      # ──────────────────────────────────────────
-      # 10. Push Docker Image to Docker Hub
-      # ──────────────────────────────────────────
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
@@ -108,9 +148,20 @@ jobs:
       - name: Push Docker Image
         run: docker push ${{ env.DOCKER_IMAGE }}:latest
 
-      # ──────────────────────────────────────────
-      # 11. Configure AWS Credentials & kubectl
-      # ──────────────────────────────────────────
+  # ──────────────────────────────────────────
+  # JOB 7: Deploy to EKS
+  # ──────────────────────────────────────────
+  deploy:
+    name: Deploy to EKS
+    runs-on: self-hosted
+    needs: docker
+    steps:
+      - name: Fix workspace permissions
+        run: sudo chown -R ubuntu:ubuntu $GITHUB_WORKSPACE || true
+
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -124,8 +175,5 @@ jobs:
             --region ${{ env.AWS_REGION }} \
             --name ${{ env.EKS_CLUSTER }}
 
-      # ──────────────────────────────────────────
-      # 12. Deploy to Kubernetes
-      # ──────────────────────────────────────────
       - name: Deploy to Kubernetes
         run: kubectl apply -f deploymentservice.yml
