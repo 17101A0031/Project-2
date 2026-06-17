@@ -10,7 +10,7 @@ env:
 
 jobs:
   # ──────────────────────────────────────────
-  # JOB 1: Checkout & Compile
+  # JOB 1: Compile
   # ──────────────────────────────────────────
   compile:
     name: Compile
@@ -41,6 +41,9 @@ jobs:
       - name: Checkout source code
         uses: actions/checkout@v4
 
+      - name: Compile
+        run: mvn compile
+
       - name: Unit Tests
         run: mvn test -DskipTests=true
 
@@ -57,6 +60,9 @@ jobs:
 
       - name: Checkout source code
         uses: actions/checkout@v4
+
+      - name: Compile
+        run: mvn compile
 
       - name: SonarQube Analysis
         run: |
