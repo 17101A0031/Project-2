@@ -156,20 +156,10 @@
         </plugins>
     </build>
 
-         <distributionManagement>
+       <distributionManagement>
     <repository>
-      <id>maven-releases</id>
-      <name>maven-releases</name>
-      <url>http://13.206.201.106:8081/repository/maven-releases/</url>
-    </repository>
-    <snapshotRepository>
-      <id>maven-snapshots</id>
-      <name>maven-snapshots</name>
-      <url>http://13.206.201.106:8081/repository/maven-snapshots/</url>
-    </snapshotRepository>
-
-<repository>
         <id>nexus-releases</id>
+        <name>ekart-releases</name>
         <url>http://3.111.58.19:8081/repository/ekart-releases/</url>
     </repository>
 </distributionManagement>
