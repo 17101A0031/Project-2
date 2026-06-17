@@ -1,1 +1,140 @@
+name: CI/CD Pipeline
 
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+env:
+  DOCKER_IMAGE: sidk27/ekart
+  AWS_REGION: ap-south-1
+  EKS_CLUSTER: project-cluster
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # ──────────────────────────────────────────
+      # 1. Git Checkout
+      # ──────────────────────────────────────────
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      # ──────────────────────────────────────────
+      # 2. Setup Java & Maven
+      # ──────────────────────────────────────────
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      # ──────────────────────────────────────────
+      # 3. Compile
+      # ──────────────────────────────────────────
+      - name: Compile
+        run: mvn compile
+
+      # ──────────────────────────────────────────
+      # 4. Unit Tests (skipped, mirrors Jenkins)
+      # ──────────────────────────────────────────
+      - name: Unit Tests
+        run: mvn test -DskipTests=true
+
+      # ──────────────────────────────────────────
+      # 5. SonarQube Analysis
+      # ──────────────────────────────────────────
+      - name: SonarQube Analysis
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        run: |
+          mvn sonar:sonar \
+            -Dsonar.projectKey=EKART \
+            -Dsonar.projectName=EKART \
+            -Dsonar.java.binaries=target/classes \
+            -Dsonar.host.url=$SONAR_HOST_URL \
+            -Dsonar.login=$SONAR_TOKEN
+
+      # ──────────────────────────────────────────
+      # 6. OWASP Dependency Check
+      # ──────────────────────────────────────────
+      - name: OWASP Dependency Check
+        uses: dependency-check/Dependency-Check_Action@main
+        with:
+          project: 'EKART'
+          path: '.'
+          format: 'HTML'
+          args: >
+            --nvdApiKey ${{ secrets.NVD_API_KEY }}
+            --out reports/
+
+      - name: Upload OWASP Dependency Check Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dependency-check-report
+          path: reports/
+
+      # ──────────────────────────────────────────
+      # 7. Maven Build (Package)
+      # ──────────────────────────────────────────
+      - name: Build (Package)
+        run: mvn package -DskipTests=true
+
+      # ──────────────────────────────────────────
+      # 8. Deploy to Nexus
+      # ──────────────────────────────────────────
+      - name: Deploy to Nexus
+        env:
+          NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME }}
+          NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
+        run: |
+          mvn deploy -DskipTests=true \
+            -Drepository.username=$NEXUS_USERNAME \
+            -Drepository.password=$NEXUS_PASSWORD
+
+      # ──────────────────────────────────────────
+      # 9. Build & Tag Docker Image
+      # ──────────────────────────────────────────
+      - name: Build and Tag Docker Image
+        run: docker build -t ${{ env.DOCKER_IMAGE }}:latest -f docker/Dockerfile .
+
+      # ──────────────────────────────────────────
+      # 10. Push Docker Image to Docker Hub
+      # ──────────────────────────────────────────
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+      - name: Push Docker Image
+        run: docker push ${{ env.DOCKER_IMAGE }}:latest
+
+      # ──────────────────────────────────────────
+      # 11. Configure AWS Credentials & kubectl
+      # ──────────────────────────────────────────
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update kubeconfig for EKS
+        run: |
+          aws eks update-kubeconfig \
+            --region ${{ env.AWS_REGION }} \
+            --name ${{ env.EKS_CLUSTER }}
+
+      # ──────────────────────────────────────────
+      # 12. Deploy to Kubernetes
+      # ──────────────────────────────────────────
+      - name: Deploy to Kubernetes
+        run: kubectl apply -f deploymentservice.yml
